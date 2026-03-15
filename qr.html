@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>System Access</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=VT323&display=swap');
+
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+–green: #00ff41;
+–dim-green: #00b32c;
+–red: #ff003c;
+–yellow: #ffe000;
+–bg: #0a0a0a;
+}
+
+body {
+background: var(–bg);
+color: var(–green);
+font-family: ‘Share Tech Mono’, monospace;
+overflow: hidden;
+height: 100vh;
+width: 100vw;
+cursor: none;
+}
+
+body::after {
+content: ‘’;
+position: fixed;
+inset: 0;
+background: repeating-linear-gradient(
+0deg, transparent, transparent 2px,
+rgba(0,0,0,0.13) 2px, rgba(0,0,0,0.13) 4px
+);
+pointer-events: none;
+z-index: 9999;
+animation: flicker 0.15s infinite;
+}
+
+@keyframes flicker {
+0%,100% { opacity: 1; }
+50% { opacity: 0.97; }
+}
+
+#matrix-canvas {
+position: fixed;
+inset: 0;
+opacity: 0.18;
+z-index: 0;
+}
+
+#terminal {
+position: relative;
+z-index: 10;
+height: 100vh;
+width: 100vw;
+padding: 18px 22px;
+overflow: hidden;
+display: flex;
+flex-direction: column;
+gap: 2px;
+}
+
+.line {
+font-size: clamp(11px, 1.6vw, 14px);
+line-height: 1.55;
+white-space: pre;
+opacity: 0;
+animation: fadein 0.04s forwards;
+}
+
+@keyframes fadein { to { opacity: 1; } }
+
+.prompt  { color: var(–dim-green); }
+.info    { color: #00cc33; }
+.warn    { color: var(–yellow); }
+.error   { color: var(–red); }
+.success { color: #00ffaa; }
+.data    { color: #4dff91; font-size: clamp(10px,1.4vw,12px); }
+
+#alert-box {
+display: none;
+position: fixed;
+inset: 0;
+z-index: 100;
+background: rgba(0,0,0,0.92);
+flex-direction: column;
+align-items: center;
+justify-content: center;
+gap: 24px;
+text-align: center;
+padding: 30px;
+}
+
+#alert-box.show { display: flex; }
+
+#alert-title {
+font-family: ‘VT323’, monospace;
+font-size: clamp(44px, 10vw, 96px);
+color: var(–red);
+animation: pulse-red 0.5s infinite alternate;
+letter-spacing: 4px;
+}
+
+@keyframes pulse-red {
+from { text-shadow: 0 0 20px var(–red); opacity: 1; }
+to   { text-shadow: 0 0 70px var(–red), 0 0 120px #ff0000; opacity: 0.85; }
+}
+
+#alert-sub {
+font-family: ‘VT323’, monospace;
+font-size: clamp(20px, 4vw, 34px);
+color: var(–yellow);
+text-shadow: 0 0 12px var(–yellow);
+max-width: 720px;
+line-height: 1.4;
+}
+
+#alert-files {
+font-family: ‘Share Tech Mono’, monospace;
+font-size: clamp(10px, 1.5vw, 13px);
+color: #ff6688;
+opacity: 0.92;
+max-width: 620px;
+text-align: left;
+white-space: pre;
+}
+
+#alert-counter {
+font-family: ‘VT323’, monospace;
+font-size: clamp(18px, 3vw, 28px);
+color: #ff4466;
+animation: blink 1s infinite;
+}
+
+@keyframes blink {
+0%,100% { opacity: 1; }
+50% { opacity: 0.15; }
+}
+
+#progress-bar-wrap {
+position: fixed;
+bottom: 0; left: 0; right: 0;
+height: 4px;
+background: #111;
+z-index: 50;
+}
+#progress-bar {
+height: 100%;
+width: 0%;
+background: linear-gradient(90deg, var(–green), #00ffaa);
+transition: width 0.08s linear;
+box-shadow: 0 0 8px var(–green);
+}
+
+#ip-grid {
+display: none;
+position: fixed;
+top: 12px; right: 16px;
+z-index: 20;
+font-size: clamp(9px, 1.2vw, 11px);
+color: #00aa28;
+border: 1px solid #00aa28;
+padding: 8px 12px;
+background: rgba(0,10,4,0.88);
+line-height: 1.75;
+}
+</style>
+
+</head>
+<body>
+
+<canvas id="matrix-canvas"></canvas>
+
+<div id="ip-grid">
+  TARGET IP: <span id="ip-display">---.---.---.---</span><br>
+  LOCATION:  <span id="loc-display">Resolving...</span><br>
+  FIREWALL:  <span style="color:var(--red)">BYPASSED ✓</span><br>
+  ENCRYPTED: <span style="color:var(--green)">AES-256</span>
+</div>
+
+<div id="terminal"></div>
+<div id="progress-bar-wrap"><div id="progress-bar"></div></div>
+
+<div id="alert-box">
+  <div id="alert-title">⚠ SYSTEM COMPROMISED ⚠</div>
+  <div id="alert-sub">ALL FILES ENCRYPTED & UPLOADED<br>REMOTE ACCESS ESTABLISHED</div>
+  <div id="alert-files"></div>
+  <div id="alert-counter">● LIVE CONNECTION ACTIVE</div>
+</div>
+
+<script>
+// Matrix rain
+const canvas = document.getElementById('matrix-canvas');
+const ctx = canvas.getContext('2d');
+canvas.width = window.innerWidth;
+canvas.height = window.innerHeight;
+const cols = Math.floor(canvas.width / 16);
+const drops = Array(cols).fill(1);
+const chars = 'アイウエオカキクケコサシスセソ0123456789ABCDEF$#@%&*!><|/\\';
+function drawMatrix() {
+  ctx.fillStyle = 'rgba(10,10,10,0.05)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  drops.forEach((y, i) => {
+    const c = chars[Math.floor(Math.random() * chars.length)];
+    ctx.fillStyle = i % 7 === 0 ? '#00ffaa' : '#00ff41';
+    ctx.font = '14px Share Tech Mono';
+    ctx.fillText(c, i * 16, y * 16);
+    if (y * 16 > canvas.height && Math.random() > 0.975) drops[i] = 0;
+    drops[i]++;
+  });
+}
+setInterval(drawMatrix, 35);
+
+const terminal = document.getElementById('terminal');
+const bar = document.getElementById('progress-bar');
+let lineCount = 0;
+const MAX_LINES = 40;
+
+function addLine(text, cls = 'info', delay = 0) {
+  return new Promise(res => setTimeout(() => {
+    if (lineCount >= MAX_LINES) {
+      const first = terminal.querySelector('.line');
+      if (first) terminal.removeChild(first);
+    } else { lineCount++; }
+    const el = document.createElement('div');
+    el.className = `line ${cls}`;
+    el.textContent = text;
+    terminal.appendChild(el);
+    terminal.scrollTop = terminal.scrollHeight;
+    res();
+  }, delay));
+}
+
+function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+function randIP() { return Array(4).fill(0).map(() => Math.floor(Math.random()*254)+1).join('.'); }
+function randHex(len=32) { return Array(len).fill(0).map(() => Math.floor(Math.random()*16).toString(16)).join(''); }
+
+function animateProgress(from, to, ms) {
+  return new Promise(res => {
+    const steps = 25;
+    const stepMs = ms / steps;
+    let s = 0;
+    const iv = setInterval(() => {
+      s++;
+      bar.style.width = (from + (to - from) * (s / steps)) + '%';
+      if (s >= steps) { clearInterval(iv); res(); }
+    }, stepMs);
+  });
+}
+
+const locations = ['Moscow, RU','Beijing, CN','Pyongyang, KP','Bucharest, RO','Lagos, NG','Tehran, IR'];
+const fakeFiles = [
+  'passwords.txt','bank_details.csv','private_keys.json',
+  'browser_history.db','wallet_seed.txt','tax_returns_2024.pdf',
+  'contacts_backup.vcf','photos_private.zip','work_secrets.docx'
+];
+
+async function runHack() {
+  const ip = randIP();
+  const loc = locations[Math.floor(Math.random()*locations.length)];
+  document.getElementById('ip-display').textContent = ip;
+  document.getElementById('loc-display').textContent = loc;
+
+  await addLine('root@shadownet:~# ./exploit_v9.sh --target auto --silent', 'prompt');
+  await addLine('[*] Initializing payload delivery engine...', 'info', 120);
+  await addLine('[*] Loading kernel exploit modules... OK', 'info', 280);
+  await addLine('[*] Spoofing MAC address: ' + randHex(12).match(/.{2}/g).join(':'), 'data', 420);
+  await addLine('[*] Routing through TOR exit nodes...', 'info', 560);
+
+  for (let i = 0; i < 5; i++) {
+    await addLine(`  ↳ node-${i+1}: ${randIP()} [${['DE','NL','US','FR','JP'][i]}]  ✓`, 'data', 680 + i*110);
+  }
+
+  await addLine('[+] Anonymity chain established. Trace probability: 0.0003%', 'success', 1250);
+  await addLine('[*] Scanning target system...', 'info', 1420);
+
+  document.getElementById('ip-grid').style.display = 'block';
+
+  await addLine(`[*] Target identified: ${ip} (${loc})`, 'warn', 1620);
+  await addLine('[*] OS Fingerprint: Windows 11 Pro x64 (Build 26100)', 'data', 1820);
+  await addLine('[*] Open ports: 22, 80, 135, 443, 3389, 8080', 'data', 2020);
+  await addLine('[!] CVE-2024-38213 detected — remote code execution possible', 'warn', 2250);
+  await addLine('[*] Deploying shellcode payload...', 'info', 2480);
+  await animateProgress(0, 35, 650);
+  await addLine('[+] SYSTEM shell obtained. Privilege: NT AUTHORITY\\SYSTEM', 'success', 3180);
+  await addLine('[*] Disabling Windows Defender...', 'warn', 3370);
+  await addLine('  ↳ Tamper protection: OFF', 'error', 3560);
+  await addLine('  ↳ Real-time monitoring: OFF', 'error', 3750);
+  await addLine('[*] Dumping credential store (LSASS)...', 'info', 3980);
+
+  for (let i = 0; i < 4; i++) {
+    await addLine(`  [HASH] ${['Administrator','Guest','DefaultUser','SYSTEM'][i]}: ${randHex(32)}`, 'data', 4200 + i*160);
+  }
+
+  await animateProgress(35, 65, 750);
+
+  await addLine('[*] Mounting remote filesystem...', 'info', 5050);
+  await addLine('[*] Enumerating sensitive files...', 'info', 5230);
+
+  const shuffled = [...fakeFiles].sort(() => Math.random()-0.5).slice(0,6);
+  for (let i = 0; i < shuffled.length; i++) {
+    await addLine(`  [FOUND] C:\\Users\\User\\Documents\\${shuffled[i]}`, 'error', 5420 + i*120);
+  }
+
+  await addLine('[*] Encrypting & packaging data for exfiltration...', 'warn', 6180);
+  await animateProgress(65, 90, 800);
+
+  await addLine(`[*] Uploading to C2 server ${randIP()}:4444...`, 'info', 7080);
+  await addLine('[*] Transfer: ████████████████░░░░ 80%  (3.3 GB / 4.1 GB)', 'data', 7300);
+  await addLine('[*] Transfer: ████████████████████ 100% ✓', 'success', 7850);
+  await animateProgress(90, 100, 450);
+
+  await sleep(250);
+
+  // Final alert — stays on screen forever
+  const alertBox = document.getElementById('alert-box');
+  document.getElementById('alert-files').textContent =
+    'FILES STOLEN:\n' + shuffled.map(f => '  → ' + f).join('\n');
+  alertBox.classList.add('show');
+}
+
+runHack();
+</script>
+
+</body>
+</html>
